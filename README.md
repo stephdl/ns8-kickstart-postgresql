@@ -12,10 +12,11 @@ To start a new module from it:
 
 1. Rename some references inside the repo:
    ```
-   modulename=$(basename $(pwd) | sed 's/^ns8-//')
-   git mv imageroot/systemd/user/kickstart.service imageroot/systemd/user/${modulename}.service
-   git mv tests/kickstart.robot tests/${modulename}.robot
-   sed -i "s/kickstart/${modulename}/g" $(find .github/ * -type f)
+   modulename=$(basename $(pwd) | sed 's/^ns8-//') &&
+   git mv imageroot/systemd/user/kickstart.service imageroot/systemd/user/${modulename}.service &&
+   git mv imageroot/systemd/user/wordpress-app.service imageroot/systemd/user/${modulename}-app.service && 
+   git mv tests/kickstart.robot tests/${modulename}.robot &&
+   sed -i "s/kickstart/${modulename}/g" $(find .github/ * -type f) &&
    git commit -a -m "Repository initialization"
    ```
 
