@@ -22,7 +22,7 @@ ExecStart=/usr/bin/podman run --conmon-pidfile %t/kickstart-app.pid \
     --cidfile %t/kickstart-app.ctr-id --cgroups=no-conmon \
     --pod-id-file %t/kickstart.pod-id --replace -d --name  kickstart-app \
     --volume kickstart-app:/var/www/html/:Z \
-    --volume ./tmp:/tmp:Z \
+    --volume ./config:/tmp:Z \
     --env=MARIADB_* \
     --env MARIADB_DB_TYPE=mysql \
     --env MARIADB_DB_HOST=127.0.0.1 \
