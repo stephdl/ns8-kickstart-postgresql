@@ -123,26 +123,21 @@ on the root terminal
 podman ps
 CONTAINER ID  IMAGE                                      COMMAND               CREATED        STATUS        PORTS                    NAMES
 d292c6ff28e9  localhost/podman-pause:4.6.1-1702418000                          9 minutes ago  Up 9 minutes  127.0.0.1:20015->80/tcp  80b8de25945f-infra
-d8df02bf6f4a  docker.io/library/mariadb:10.11.5          --character-set-s...  9 minutes ago  Up 9 minutes  127.0.0.1:20015->80/tcp  mariadb-app
+d8df02bf6f4a  docker.io/library/postgres:15.5-alpine3.19          --character-set-s...  9 minutes ago  Up 9 minutes  127.0.0.1:20015->80/tcp  postgresql-app
 9e58e5bd676f  docker.io/library/nginx:stable-alpine3.17  nginx -g daemon o...  9 minutes ago  Up 9 minutes  127.0.0.1:20015->80/tcp  kickstart-app
 ```
 
 you can see what environment variable is inside the container
 ```
 podman exec  kickstart-app env
-PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 TERM=xterm
-PKG_RELEASE=1
-MARIADB_DB_HOST=127.0.0.1
-MARIADB_DB_NAME=kickstart
-MARIADB_IMAGE=docker.io/mariadb:10.11.5
-MARIADB_DB_TYPE=mysql
 container=podman
 NGINX_VERSION=1.24.0
+PKG_RELEASE=1
 NJS_VERSION=0.7.12
-MARIADB_DB_USER=kickstart
-MARIADB_DB_PASSWORD=kickstart
-MARIADB_DB_PORT=3306
+NGINX_IMAGE=docker.io/nginx:stable-alpine3.17
+CONFIG_DATABASE_URI="postgresql://postgres:Nethesis,1234@127.0.0.1:5432/toto"
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 HOME=/root
 ```
 
