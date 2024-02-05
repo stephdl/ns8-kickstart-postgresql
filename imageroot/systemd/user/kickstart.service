@@ -10,8 +10,8 @@
 
 [Unit]
 Description=Podman kickstart.service
-Requires=mariadb-app.service kickstart-app.service
-Before=mariadb-app.service kickstart-app.service
+Requires=postgresql-app.service kickstart-app.service
+Before=postgresql-app.service kickstart-app.service
 
 [Service]
 Environment=PODMAN_SYSTEMD_UNIT=%n
