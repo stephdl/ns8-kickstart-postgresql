@@ -33,12 +33,12 @@ To start a new module from it:
 
 Instantiate the module with:
 
-    add-module ghcr.io/nethserver/kickstart:latest 1
+    add-module ghcr.io/compgeniuses/kickstart:latest 1
 
 The output of the command will return the instance name.
 Output example:
 
-    {"module_id": "kickstart1", "image_name": "kickstart", "image_url": "ghcr.io/nethserver/kickstart:latest"}
+    {"module_id": "kickstart1", "image_name": "kickstart", "image_url": "ghcr.io/compgeniuses/kickstart:latest"}
 
 ## Configure
 
@@ -78,6 +78,12 @@ api-cli run get-configuration --agent module/kickstart1
 To uninstall the instance:
 
     remove-module --no-preserve kickstart1
+
+## Update
+
+To Update the instance:
+
+    api-cli run update-module --data '{"module_url":"ghcr.io/compgeniuses/kickstart:latest","instances":["kickstart1"],"force":true}'
 
 ## Smarthost setting discovery
 
