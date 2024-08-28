@@ -23,7 +23,7 @@
   "packageRules": [
     {
       "matchPackageNames": ["postgres"],
-      "allowedVersions": "<= 16"
+      "allowedVersions": "<= 16.0"
     }
   ]
 }
