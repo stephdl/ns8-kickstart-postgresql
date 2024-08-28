@@ -1,6 +1,23 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
-    "config:recommended"
+  "extends": ["config:base"],
+  "ignorePaths": ["**/ui/**", "**/.devcontainer/**"],
+  "regexManagers": [
+    {
+      "fileMatch": ["build-images.sh"],
+      "matchStrings": [
+        "docker\\.io/nginx:(?<currentValue>[-0-9\\.a-z]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "nginx"
+    },
+    {
+      "fileMatch": ["build-images.sh"],
+      "matchStrings": [
+        "docker\\.io/postgres:(?<currentValue>[-0-9\\.a-z]+)"
+      ],
+      "datasourceTemplate": "docker",
+      "depNameTemplate": "postgres"
+    }
   ]
 }
