@@ -942,14 +942,7 @@
     "@babel/helper-string-parser" "^7.27.1"
     "@babel/helper-validator-identifier" "^7.28.5"
 
-"@carbon/icon-helpers@^10.53.1":
-  version "10.69.0"
-  resolved "https://registry.yarnpkg.com/@carbon/icon-helpers/-/icon-helpers-10.69.0.tgz#cf17223d296ec1750c01f3cd33667eb7e50c0ceb"
-  integrity sha512-AYkP9+le5pLllM4OX1zHCSpBIX4uk8hzaV7EakyzQsUoWZIdLip0+j1n9WJvGA7EnMMaFxtmRkt1KAbSGi+YIg==
-  dependencies:
-    "@ibm/telemetry-js" "^1.5.0"
-
-"@carbon/icon-helpers@^10.37.0":
+"@carbon/icon-helpers@^10.37.0", "@carbon/icon-helpers@^10.53.1":
   version "10.69.0"
   resolved "https://registry.yarnpkg.com/@carbon/icon-helpers/-/icon-helpers-10.69.0.tgz#cf17223d296ec1750c01f3cd33667eb7e50c0ceb"
   integrity sha512-AYkP9+le5pLllM4OX1zHCSpBIX4uk8hzaV7EakyzQsUoWZIdLip0+j1n9WJvGA7EnMMaFxtmRkt1KAbSGi+YIg==
@@ -1042,9 +1035,9 @@
     glob-to-regexp "^0.3.0"
 
 "@nethserver/ns8-ui-lib@^1.5.0":
-  version "1.8.0"
-  resolved "https://registry.yarnpkg.com/@nethserver/ns8-ui-lib/-/ns8-ui-lib-1.8.0.tgz#c2ee0042222b9f864a60fb6e2a1a6327631bfcdb"
-  integrity sha512-8aZ4l6qDnZMfDSt3M0rAatbtXwrkTcRsTjydCjaMivefWDnzv2rUIgfCYsDPswtwmO/jvGBxs0sJRGgosBaM/w==
+  version "1.9.0"
+  resolved "https://registry.yarnpkg.com/@nethserver/ns8-ui-lib/-/ns8-ui-lib-1.9.0.tgz#fcd63ca01b8ba67527c0c78627fb5351b6ea506c"
+  integrity sha512-2AO7JyOZjkTJ7PF3B3JkSN0KpPazyf3bS3nuqdiQLezeE97yFdpPg4BVb4HGO05jJMa0M05FNqFWxvy3cDQL8w==
   dependencies:
     "@rollup/plugin-json" "^4.1.0"
     core-js "^3.15.2"
