@@ -19,7 +19,7 @@ Check if kickstart can be configured
     ...    return_rc=True  return_stdout=False
     Should Be Equal As Integers    ${rc}  0
 
-Check if the kickstart configuration reads back
+Check if kickstart configuration reads back
     ${output}  ${rc} =    Execute Command    api-cli run module/${module_id}/get-configuration --data '{}'
     ...    return_rc=True
     Should Be Equal As Integers    ${rc}  0
