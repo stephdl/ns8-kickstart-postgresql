@@ -1,8 +1,9 @@
 name: "Test module on QEMU"
 
 # Boots a throwaway NS8 node on the runner and runs tests/ against it, so the
-# module can be tested without any external infrastructure. The job itself
-# lives in stephdl/ns8-ci-actions.
+# module is tested without any external infrastructure. Chained on the build:
+# a broken image never reaches the test. The wrapper lives in
+# stephdl/ns8-ci-actions and mirrors the DigitalOcean one of ns8-github-actions.
 
 run-name: "Test ${{ github.event.workflow_run.head_branch || github.ref_name }} on QEMU"
 
@@ -17,30 +18,29 @@ on:
         required: false
         default: false
         type: boolean
-
-# github.ref is the default branch under workflow_run, so it cannot key this.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch || github.ref }}
-  cancel-in-progress: true
+      ui_tests:
+        description: "Run the cases tagged ui and publish their screenshots"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
-  module:
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
-    uses: NethServer/ns8-github-actions/.github/workflows/module-info.yml@v1
-
-  test:
-    needs: module
-    strategy:
-      fail-fast: false
-      matrix:
-        distro: [rocky9, debian13]
-    uses: stephdl/ns8-ci-actions/.github/workflows/test-on-qemu.yml@v1
+  run:
+    name: "Run tests"
+    # The screenshots are published as a comment, and a called workflow cannot
+    # hold more than its caller. Granted here rather than by raising the
+    # repository default, so the write token stops at this job.
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: stephdl/ns8-ci-actions/.github/workflows/test-module-qemu.yml@v1
     with:
-      distro: ${{ matrix.distro }}
-      image_url: ${{ needs.module.outputs.image }}
-      repo_ref: ${{ needs.module.outputs.sha }}
-      version_tag: ${{ needs.module.outputs.tag }}
-      # Guest RAM in MiB, 8192 by default. The runner has 15360 and needs some
-      # for itself, so 12288 is the practical ceiling.
-      # vm_mem: 12288
-      debug_shell: ${{ github.event.inputs.debug_shell == 'true' || false }}
+      # optional: build-images.sh's reponame is a template placeholder
+      # (kickstart), shared with ns8-kickstart-mariadb. Sed it together with
+      # this value if this repo is cloned into a differently named module.
+      image_name: kickstart
+      # update tested separately later, independent of this drop-in
+      # scenarios: '["install","update"]'
+      ui_tests_strategy: ${{ github.event.inputs.ui_tests == 'true' && 'always' || 'on_renovate_ui_change' }}
+      debug_shell: ${{ github.event.inputs.debug_shell == 'true' }}
+      # vm_mem: 12288                 # guest memory, MiB
