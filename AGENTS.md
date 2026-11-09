@@ -11,7 +11,8 @@ NS8 is a modular Linux server platform. Each module runs in a Podman container,
 rootless by default. Some modules require rootful mode — declared in `build-images.sh`
 via `--label="org.nethserver.rootfull=1"`.
 
-### Container image versions and Renovate
+
+## Container image versions and Renovate
 
 Third-party images pulled at runtime are declared in `build-images.sh` via:
 ```bash
@@ -34,7 +35,9 @@ curl -s "https://hub.docker.com/v2/repositories/library/mariadb/tags/?page_size=
 ```
 Or browse `https://hub.docker.com/_/mariadb/tags` directly. A non-existent tag silently fails at pull time and breaks the module.
 
-## Module Directory Layout
+---
+
+## Module directory layout
 ```
 build-images.sh          # Container image build + authorization declarations
 imageroot/
@@ -50,7 +53,9 @@ ui/                      # Vue.js 2 frontend
 tests/                   # Robot Framework integration tests
 ```
 
-## Authorization Model
+---
+
+## Authorization model
 
 ### Declaring privileges (build-images.sh)
 Authorizations are declared as container labels in `build-images.sh`:
@@ -58,6 +63,10 @@ Authorizations are declared as container labels in `build-images.sh`:
 --label="org.nethserver.authorizations=node:fwadm traefik@node:routeadm mail@any:mailadm"
 ```
 Format: `<scope>:<role>`. Multiple roles on the same scope: `node:fwadm,portsadm`.
+
+Other labels modules often need: `org.nethserver.tcp-ports-demand=N` / `udp-ports-demand=N`
+(ports given as `TCP_PORT`, `TCP_PORTS`), `org.nethserver.min-core=X.Y.Z` (refuses install on
+older core), `org.nethserver.max-per-node=N`, `org.nethserver.flags=...`. Manual page: `images`.
 
 **Scopes:** `node` (node agent), `cluster` (cluster agent), `<module>@node` (first instance on same node), `<module>@any` (all instances of that module).
 
@@ -75,17 +84,18 @@ Format: `<scope>:<role>`. Multiple roles on the same scope: `node:fwadm,portsadm
 | `mailadm` | ns8-mail | master credentials, relay rules, BCC |
 | `accountconsumer` | cluster | bind/use a user domain (LDAP) |
 | `accountprovider` | cluster | provide a user domain |
-| `selfadm` | built-in | module's own actions (auto-granted) |
+| `selfadm` | built-in | module's own actions; core grants only `configure-module` |
 
 The builtin `reader` role needs no grant. For a read-only action, use one of
 the `list-`, `get-`, `show-` or `read-` prefixes and readers can run it.
 Another module requests it like any role, for example
-`postgresql@any:reader`. Every reader can run these actions, so they must
+`mariadb@any:reader`. Every reader can run these actions, so they must
 never return passwords or other secrets.
 
 ### selfadm — module calling its own actions
-A module can grant itself the right to call its own actions via Redis in
-`imageroot/actions/create-module/10grants`:
+Core already puts `configure-module` in the module's `selfadm` role
+(`create-module/10selfadm_role`), so restore and clone steps can call it with no grant.
+To call any other own action, grant it in `imageroot/actions/create-module/10grants`:
 ```bash
 redis-exec SADD "${AGENT_ID}/roles/selfadm" "action-name"
 ```

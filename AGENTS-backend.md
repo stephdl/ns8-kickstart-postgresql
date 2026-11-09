@@ -6,11 +6,12 @@ Scripts inside execute in lexicographic order: `10grants`, `20read`, `80start_se
 Python scripts use the NS8 agent SDK (`import agent`).
 Bash scripts use standard POSIX shell.
 
-Base actions inherited automatically (no need to implement):
-- `create-module` — install + pull image
-- `destroy-module` — cleanup (traefik, firewall, systemd)
-- `get-status` — runtime status (rootless and rootful)
-- `list-service-providers` — service discovery
+Base actions are inherited from core (`/usr/local/agent/actions/` on the node):
+`create-module`, `destroy-module`, `clone-module`, `restore-module`, `import-module`,
+`transfer-state`, `update-module`, `get-status`, `get-name`, `set-name`, `set-note`,
+`list-volumes`, `list-service-providers`, `list-backup-repositories`. A module adds its
+own numbered steps to the same directory name, for example `restore-module/40restoreDB`
+runs after the inherited `10restore`.
 
 ### JSON data flow
 
@@ -90,6 +91,32 @@ exec 1>&2   # all subsequent echo/printf go to journald
 `agent.SD_WARNING`, `agent.SD_ERR`, `agent.SD_INFO`, `agent.SD_NOTICE` are systemd journal priority prefixes — journald parses them to set log level.
 
 ### Agent SDK (Python)
+The package resolves nowhere in the module repo. It ships in the core image and reaches
+`import agent` through a `pypkg.pth` — no `PYTHONPATH`, nothing to install locally, and
+what it offers follows the target node's core version. Check this index before writing a
+helper by hand:
+
+```
+env, Redis      redis_connect read_envfile write_envfile set_env mset_env unset_env
+                munset_env dump_env
+action, task    set_status set_progress set_weight get_progress_callback assert_exp
+                run_helper resolve_agent_id get_module_seq slurp_file
+firewall        add_public_service remove_public_service add_custom_zone
+                remove_custom_zone add_rich_rules remove_rich_rules add_tun remove_tun
+ports, routes   allocate_ports deallocate_ports tcp_port_in_use http_route_in_use
+                set_route get_route set_certificate get_certificate
+                get_certificate_and_key certificate_event_matches
+backup, volume  prepare_restic_command run_restic get_existing_volume_args
+                get_state_volume_args get_image_name_from_url
+discovery       list_service_providers bind_user_domains get_bound_domain_list
+                get_smarthost_settings get_hostname
+submodules      tasks/ ldapclient/ ldapproxy.py volumes.py safeio.py facts.py
+```
+
+Indexed from the `ns8-stable` tag; an older node carries less. On a node the tree is at
+`/usr/local/agent/pypkg/agent/`. Fetch the source only for a signature or a missing name:
+`curl -s https://raw.githubusercontent.com/NethServer/ns8-core/ns8-stable/core/imageroot/usr/local/agent/pypkg/agent/__init__.py | grep '^def '`.
+
 ```python
 import agent
 
@@ -100,15 +127,15 @@ agent.unset_env("KEY")          # remove env var from state/environment
 
 > **⚠️ SECURITY — `agent.set_env()` writes to Redis plain text, readable by ALL modules on the node. NEVER store passwords/tokens/secrets via `agent.set_env()`.**
 >
-> **Secret pattern:** generate in `create-module/10genpasswords` → write `state/passwords.env` (mode 0600) → declare in `etc/state-include.conf` (Restic backup) → load via systemd `EnvironmentFile=-%S/state/passwords.env` → inject into container via `--env-file=%S/state/passwords.env`. Restic restores the file on `restore-module` — no extra action needed. Non-secret vars (`TRAEFIK_HOST`, `LDAP_DOMAIN`, etc.) use `agent.set_env()` normally.
+> **Secret pattern:** generate in `create-module` → write a file under `state/` with mode 0600 (the name is free, for example `state/passwords.env` or `state/secrets/db.env`) → declare it in `etc/state-include.conf` (restic backup) → load via systemd `EnvironmentFile=-%S/state/passwords.env` when the unit itself needs the value, and inject into the container with `--env-file=%S/state/passwords.env`. Restore gets the file back from restic and clone copies `state/`, so no extra step is needed. Non-secret vars (`TRAEFIK_HOST`, `LDAP_DOMAIN`, etc.) use `agent.set_env()` normally.
 >
 > ```python
 > # create-module/10genpasswords
 > import secrets, os
 > p = os.path.join(os.environ["AGENT_STATE_DIR"], "passwords.env")
-> with open(p, "w") as f:
+> fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)  # 0600 from the start, never overwrite
+> with os.fdopen(fd, "w") as f:
 >     f.write(f"DB_PASSWORD={secrets.token_urlsafe(16)}\n")
-> os.chmod(p, 0o600)
 > ```
 
 #### Progress reporting
@@ -201,10 +228,15 @@ os.replace(tmpfile, "discovery.env")
 Events are Redis channel messages. Channel format: `module/<module_id>/event/<event_name>`.
 Name events in **past tense**: `mail-settings-changed`, `ldap-provider-changed`.
 
-Firing an event:
-```bash
-redis-cli PUBLISH "module/mymodule1/event/my-settings-changed" '{"module_id":"mymodule1","module_uuid":"..."}'
+Firing an event (a plain `redis-cli` has no module credentials):
+```python
+import json, os, agent
+rdb = agent.redis_connect(privileged=True)
+rdb.publish(os.environ["AGENT_ID"] + "/event/my-settings-changed",
+            json.dumps({"module_id": os.environ["MODULE_ID"], "module_uuid": os.environ["MODULE_UUID"]}))
 ```
+Publish on the leader (default connection), never with `use_replica=True`: the replica is
+read-only, and every agent receives events from its local replica, which the leader feeds.
 
 ### Handlers
 Live in `imageroot/events/<event-name>/` — executable scripts, work like action steps.
@@ -214,11 +246,36 @@ Injected env vars: `AGENT_EVENT_SOURCE`, `AGENT_EVENT_NAME`.
 Pattern: `event = json.load(sys.stdin)` → filter with `sys.exit(0)` if not relevant → apply change → `agent.run_helper('systemctl', '--user', '-T', 'try-restart', ...)`.
 `-T` removes the default timeout. `agent.certificate_event_matches(event, hostname)` — built-in helper for `certificate-changed`.
 
-### Built-in platform events
-Module channel `module/<id>/event/<name>`: `user-domain-changed`, `ldap-provider-changed`,
-`certificate-changed`, `mail-settings-changed`, `backup-status-changed`.
-Node channel `node/<id>/event/<name>`: `fqdn-changed`.
-Cluster channel `cluster/event/<name>`: `module-added`, `module-removed`, `leader-changed`.
+### Common events
+Published by core: `smarthost-changed` (the most handled one), `user-domain-changed`,
+`ldap-provider-changed`, `module-domain-changed`, `fqdn-changed`, `backup-status-changed`,
+`module-added`, `module-removed`, `leader-changed`, `subscription-changed`.
+Published by other modules: `certificate-changed` (ns8-traefik), `mail-settings-changed`
+(ns8-mail). Grep `event/` in ns8-core for the full current list.
+
+## Routes, ports and firewall
+
+Web UI behind Traefik: request one port with `--label="org.nethserver.tcp-ports-demand=1"`,
+read it as `TCP_PORT` (several ports: `TCP_PORTS`), publish only on loopback
+(`--publish 127.0.0.1:${TCP_PORT}:80`), then register the route in
+`configure-module/05configure_traefik`. Needs `traefik@node:routeadm`.
+```python
+agent.set_route({
+    'instance': os.environ['MODULE_ID'],
+    'url': 'http://127.0.0.1:' + os.environ['TCP_PORT'],
+    'host': data['host'],
+    'http2https': data.get('http2https', True),
+    'lets_encrypt': data.get('lets_encrypt', False),
+})
+```
+`set_route()` already sets `lets_encrypt_check` and `lets_encrypt_cleanup` to `True`.
+Default `http2https` to `True`. Add a UI toggle only when the app must serve plain HTTP.
+ns8-traefik drops the route on the `module-removed` event, so `destroy-module` needs no route step.
+
+Ports open to the network: `agent.add_public_service(os.environ['MODULE_ID'], ['1514/tcp'])`
+in `create-module` (or `configure-module` with `replace_ports=True` when the list changes),
+and `agent.remove_public_service(...)` in `destroy-module`. Needs `node:fwadm`.
+See ns8-wazuh `create-module/90firewall`. Manual: `port_allocation` and `network` pages.
 
 ## Systemd Services
 
@@ -266,10 +323,12 @@ Services are enabled and started only after successful configuration.
 **CORRECT — list every service explicitly** to guarantee `Before=`/`After=` order is respected:
 ```bash
 systemctl --user enable <module>.service
-# Use try-restart if the service may not be running yet (e.g. first configure)
-systemctl --user try-restart <module>.service db-app.service app-app.service
+systemctl --user restart <module>.service db-app.service app-app.service
 ```
 All three (or more) services must appear in the command. Order matters: pod first, then DB, then app.
+Do not use `try-restart` here: it skips stopped units, so the first configure would start
+nothing. `try-restart` belongs in `update-module.d/` and event handlers, where the service
+should restart only if it already runs.
 
 ## Backup & Restore
 
@@ -279,29 +338,46 @@ All three (or more) services must appear in the command. Order matters: pod firs
 **Only include files that are NOT provided by the module image.** If a file in `state/` is derived from or identical to a file shipped in `imageroot/` (e.g. `state/initdb.d/init.sql` copied from `imageroot/sql/init.sql`), do NOT back it up — regenerate it during restore instead. Back up only:
 - User data volumes (`volumes/myapp-data`)
 - SQL/DB dumps (`state/mydb.sql`, `state/mydb.pg_dump`)
-- Secrets generated at install time (`state/passwords.env`)
+- Secrets generated at install time (`state/passwords.env` or similar)
 - Any runtime state not reproducible from the image
+
+### Excluding files (state-exclude.conf)
+`imageroot/etc/state-exclude.conf` — paths to skip, same relative paths as `state-include.conf`, passed to restic as `--exclude-file`. Use it to drop files from an included volume, e.g. caches, temp files, or live DB files already saved by a dump in `module-dump-state`:
+```
+volumes/myapp-data/cache
+volumes/myapp-data/app.db*
+```
 
 ### Restore sequence
 `imageroot/actions/restore-module/` — numbered steps, `10restore` inherited (Restic).
 
-- `06copyenv` — restore env vars from `request['environment']` via `agent.set_env()`
-- `40restoreDB` — load SQL dump via ephemeral container (see patterns below)
-- `50call-configure-module` — call `configure-module` with restored env vars via `agent.tasks.run()`
+- `06copyenv`: restore the env vars the module needs from `request['environment']` via `agent.set_env()`
+- `40restoreDB`: load SQL dump via ephemeral container (see patterns below)
+- `50...`: call `configure-module` via `agent.tasks.run()`. The name varies:
+  `50traefik`, `50configure`, `50call-configure-module`.
 
-> **⚠️ `50call-configure-module` must pass ALL vars restored by `06copyenv`**, not just the Traefik ones.
-> `06copyenv` restores every non-secret env var set by `agent.set_env()`.
-> Missing any var leaves `configure-module` with wrong/empty defaults.
+> **⚠️ The `configure-module` call must pass every field it needs**, read from the restored
+> environment. Missing fields fall back to empty or default values and silently reset the
+> admin's settings. Read `configure-module/validate-input.json` to list them.
 >
-> Pattern — read from `os.environ` (already populated by `06copyenv`), map to `configure-module` input:
 > ```python
-> agent.tasks.run("module/" + os.environ["MODULE_ID"], action="configure-module", data={
->     "host":      os.environ["TRAEFIK_HOST"],
->     "http2https": os.environ.get("TRAEFIK_HTTP2HTTPS", "false") == "true",
->     # ALL other fields accepted by configure-module — check validate-input.json
+> import json, os, sys, agent, agent.tasks
+> renv = json.load(sys.stdin)['environment']
+> ret = agent.tasks.run(agent_id=os.environ['AGENT_ID'], action='configure-module', data={
+>     "host": renv["TRAEFIK_HOST"],
+>     "http2https": renv.get("TRAEFIK_HTTP2HTTPS", "True").lower() == "true",
+>     "lets_encrypt": False,
+>     # every other configure-module field
 > })
+> agent.assert_exp(ret['exit_code'] == 0, "configure-module failed")
 > ```
-> Read `configure-module/validate-input.json` to enumerate every required/optional field.
+> Env values are strings. `set_env(True)` stores `"True"`, but some modules store `"true"`,
+> so compare with `.lower() == "true"`, never with `== True`. Use `.get()` with a default
+> for any field an older backup may lack.
+>
+> Never restore `lets_encrypt` on restore, clone or move. The DNS may not point to the new
+> node yet. The certificate request then fails, and `set_route()` checks it by default, so
+> the whole restore fails. The admin turns Let's Encrypt back on once DNS is ready.
 
 ### MariaDB
 - **Dump** (`imageroot/bin/module-dump-state`, CWD=`state/`): `podman exec mariadb-app mysqldump --databases mydb --default-character-set=utf8mb4 --single-transaction --quick --add-drop-table --skip-dump-date > mydb.sql`
@@ -320,8 +396,16 @@ All three (or more) services must appear in the command. Order matters: pod firs
 `state-include.conf`: `state/mydb.pg_dump` + `volumes/postgres-data`
 
 ### Clone vs restore
-- **restore-module**: Restic restores files listed in `etc/state-include.conf` → `40restoreDB` loads SQL dump → `50call-configure-module` reconfigures
-- **clone-module**: no Restic restore, no SQL dump — only `50call-configure-module` (fresh DB, env vars from `os.environ` set by clone framework)
+- **restore-module**: Restic restores files listed in `etc/state-include.conf` → `40restoreDB` loads SQL dump → a `50...` step calls `configure-module`.
+- **clone-module**: core copies the whole `state/` directory and every volume by rsync
+  from the source, live data included. No restic, no SQL dump. The source services stop
+  during the copy (rootless modules, through `transfer-state.target`). Env vars missing
+  on the destination are imported from the source. The module's own `50...` step then
+  sets the route or calls `configure-module` with values from `os.environ`, with the same
+  `lets_encrypt: False` rule as restore.
+
+To skip files during the copy, core supports `imageroot/etc/state-filter-rules.rsync`
+(manual page `clone_module`).
 
 Dump/cleanup scripts (`imageroot/bin/module-dump-state`, `imageroot/bin/module-cleanup-state`) only run during backup — not during clone or restore.
 
@@ -344,5 +428,5 @@ Mount in the systemd service:
 Scripts in `imageroot/update-module.d/` run on `update-module` in lexicographic order.
 If a script fails, execution continues with the next one — each script is independent.
 
-Recommended layout: `05`-`06` pre-restart migrations, `30restart` (`systemctl --user try-restart`), `50`-`60` post-restart reindex/cleanup.
-Version-specific migrations go before `30restart` so the new code starts on updated data.
+Recommended layout: migrations first, then a restart step (`systemctl --user try-restart`, most modules name it `20restart`), then post-restart reindex or cleanup.
+Version-specific migrations go before the restart step so the new code starts on updated data.
