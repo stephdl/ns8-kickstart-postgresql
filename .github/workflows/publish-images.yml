@@ -20,7 +20,9 @@ jobs:
   trivy:
     needs: module
 
-    if: ${{ needs.module.outputs.release == 'stable' || needs.module.outputs.release == 'latest' || github.event_name == 'workflow_dispatch' }}
+    # module-info derives the image from the repo name, but the template still
+    # publishes as kickstart: no image found until reponame is renamed.
+    if: ${{ needs.module.outputs.images != '' && (needs.module.outputs.release == 'stable' || needs.module.outputs.release == 'latest' || github.event_name == 'workflow_dispatch') }}
     uses: NethServer/ns8-github-actions/.github/workflows/scan-with-trivy.yml@v1
     with:
       images: ${{ needs.module.outputs.images }}
